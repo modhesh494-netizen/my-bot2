@@ -1,94 +1,117 @@
 import telebot
 import time
+import json
+import os
 from threading import Thread
+from telebot.apihelper import ApiTelegramException
 
-# --- الإعدادات الأساسية ---
+# --- الإعدادات ---
 TOKEN = '8445157524:AAF8oTwxP9MLk6hf4h5YzghwvREjCreSuy4'
-ADMIN_ID = 123456789  #5971999624
+ADMIN_ID = 5971999624  # 👈 تم تحديث المعرف الخاص بك هنا
 bot = telebot.TeleBot(TOKEN)
 
-# تخزين البيانات {chat_id: {interval: seconds, last_sent: timestamp}}
-active_chats = {}
+DATA_FILE = 'database.json'
 
-# --- لوحة التحكم (للمالك فقط) ---
+# دالة لتحميل البيانات من ملف
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+# دالة لحفظ البيانات
+def save_data():
+    with open(DATA_FILE, 'w') as f:
+        json.dump(active_chats, f)
+
+active_chats = load_data()
+
+# --- لوحة التحكم ---
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id == ADMIN_ID:
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add("📊 الإحصائيات", "📢 إذاعة رسالة")
-        bot.reply_to(message, "🛠 **لوحة تحكم المالك**", reply_markup=markup)
+        bot.reply_to(message, "🛠 **أهلاً يا مالك البوت.. لوحة التحكم جاهزة:**", reply_markup=markup)
     else:
-        bot.reply_to(message, "❌ هذا الأمر مخصص للمالك فقط.")
+        bot.reply_to(message, "❌ هذا الأمر للمالك فقط.")
 
-@bot.message_handler(func=lambda message: message.from_user.id == ADMIN_ID and message.text in ["📊 الإحصائيات", "📢 إذاعة رسالة"])
-def handle_admin(message):
-    if message.text == "📊 الإحصائيات":
-        bot.reply_to(message, f"👥 عدد الشاتات النشطة: {len(active_chats)}")
-    elif message.text == "📢 إذاعة رسالة":
-        msg = bot.send_message(message.chat.id, "💬 أرسل نص الإذاعة الآن:")
-        bot.register_next_step_handler(msg, perform_broadcast)
+@bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text == "📊 الإحصائيات")
+def stats(message):
+    bot.reply_to(message, f"👥 عدد الشاتات النشطة حالياً: {len(active_chats)}")
+
+@bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text == "📢 إذاعة رسالة")
+def broadcast_prompt(message):
+    msg = bot.send_message(message.chat.id, "💬 أرسل الرسالة التي تريد إذاعتها للجميع:")
+    bot.register_next_step_handler(msg, perform_broadcast)
 
 def perform_broadcast(message):
     count = 0
     for chat_id in list(active_chats.keys()):
         try:
-            bot.send_message(chat_id, f"📢 **تنبيه عام:**\n\n{message.text}")
+            bot.send_message(chat_id, f"📢 **رسالة من الإدارة:**\n\n{message.text}")
             count += 1
-        except: pass
-    bot.reply_to(message, f"✅ تم الإرسال إلى {count} شات.")
+            time.sleep(0.2)
+        except:
+            pass
+    bot.reply_to(message, f"✅ تمت الإذاعة بنجاح لـ {count} مستخدم/جروب.")
 
-# --- أمر التشغيل الأساسي ---
+# --- الأوامر الأساسية ---
 @bot.message_handler(commands=['start'])
 def start(message):
-    # الرسالة المطلوبة تماماً
     msg = bot.reply_to(message, "قم بتحديد وقت ارسال الرسائل ( الحد الادني 1 دقيقه و الاقصي 3 ساعات)")
     bot.register_next_step_handler(msg, set_timer)
 
 def set_timer(message):
     try:
         minutes = int(message.text)
-        
-        # التحقق من الحد الأدنى والحد الأقصى (3 ساعات = 180 دقيقة)
-        if minutes < 1:
-            bot.reply_to(message, "⚠️ خطأ: الحد الأدنى هو 1 دقيقة. أرسل /start للمحاولة مرة أخرى.")
-            return
-        if minutes > 180:
-            bot.reply_to(message, "⚠️ خطأ: الحد الأقصى هو 3 ساعات (180 دقيقة). أرسل /start للمحاولة مرة أخرى.")
-            return
-        
-        active_chats[message.chat.id] = {
-            'interval': minutes * 60,
-            'last_sent': time.time()
-        }
-        bot.reply_to(message, f"✅ تم تحديد الوقت بنجاح كل {minutes} دقيقة ﷺ.\nلإيقاف التذكير أرسل /stop")
-        
-    except ValueError:
-        bot.reply_to(message, "❌ يرجى إرسال أرقام فقط. أرسل /start للمحاولة.")
+        if 1 <= minutes <= 180:
+            active_chats[str(message.chat.id)] = {'interval': minutes * 60, 'last_sent': time.time()}
+            save_data()
+            bot.reply_to(message, f"✅ تم الضبط بنجاح! سأقوم بالتذكير كل {minutes} دقيقة ﷺ.")
+        else:
+            bot.reply_to(message, "⚠️ خطأ: يجب أن يكون الوقت بين 1 و 180 دقيقة.")
+    except:
+        bot.reply_to(message, "❌ يرجى إرسال أرقام فقط (مثلاً: 5).")
 
-# --- أمر الإيقاف ---
 @bot.message_handler(commands=['stop'])
 def stop(message):
-    if message.chat.id in active_chats:
-        del active_chats[message.chat.id]
-        bot.reply_to(message, "🛑 تم إيقاف التذكير بنجاح.")
+    if str(message.chat.id) in active_chats:
+        del active_chats[str(message.chat.id)]
+        save_data()
+        bot.reply_to(message, "🛑 تم إيقاف التذكير.")
     else:
-        bot.reply_to(message, "البوت غير مفعل لديك.")
+        bot.reply_to(message, "البوت غير مفعل هنا.")
 
-# --- منطق التذكير ---
+# --- منطق التذكير المستقر ---
 def remind_logic():
     while True:
         current_time = time.time()
-        for chat_id in list(active_chats.keys()):
-            data = active_chats[chat_id]
+        for chat_id, data in list(active_chats.items()):
             if current_time - data['last_sent'] >= data['interval']:
                 try:
                     bot.send_message(chat_id, "صلي علي النبي ﷺ مش شرط تكتب صلي ف سرك")
                     active_chats[chat_id]['last_sent'] = current_time
+                    save_data()
+                except ApiTelegramException as e:
+                    if e.error_code in [403, 400]:
+                        if chat_id in active_chats:
+                            del active_chats[chat_id]
+                            save_data()
                 except:
-                    if chat_id in active_chats: del active_chats[chat_id]
-        time.sleep(10)
+                    pass
+        time.sleep(15)
 
 Thread(target=remind_logic, daemon=True).start()
 
-print("البوت شغال...")
-bot.infinity_polling()
+# تشغيل البوت مع نظام حماية من التوقف
+print("البوت يعمل الآن...")
+while True:
+    try:
+        bot.polling(none_stop=True, interval=2, timeout=20)
+    except Exception as e:
+        print(f"Polling error: {e}")
+        time.sleep(5)
