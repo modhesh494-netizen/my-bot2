@@ -4,7 +4,7 @@ from threading import Thread
 
 # --- الإعدادات الأساسية ---
 TOKEN = '8445157524:AAF8oTwxP9MLk6hf4h5YzghwvREjCreSuy4'
-ADMIN_ID = 123456789  # 👈 ضع ID حسابك الحقيقي هنا
+ADMIN_ID = 123456789  #5971999624
 bot = telebot.TeleBot(TOKEN)
 
 # تخزين البيانات {chat_id: {interval: seconds, last_sent: timestamp}}
